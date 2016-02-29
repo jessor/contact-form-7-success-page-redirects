@@ -148,8 +148,75 @@ function cf7_success_page_form_submitted( $contact_form ) {
     // Send us to a success page, if there is one
     $success_page = get_post_meta( $contact_form_id, '_cf7_success_page_key', true );
     if ( !empty($success_page) ) {
+        set_transient( 'cf7_success', true, 30 );
         wp_redirect( get_permalink( $success_page ) );
         die();
     }
 }
 add_action( 'wpcf7_mail_sent', 'cf7_success_page_form_submitted' );
+
+/**
+ * Shortcode to insert on success page
+ * Returns one time download Link
+ * 
+ * [cf7_success_dl file='relative/path/to/file/in/wp-upload/file.pdf' msg='Download this']
+ */
+function cf7_success_dl_func( $atts ) {
+    $atts = shortcode_atts( array(
+        'file' => 'foo.jpg',
+        'msg' => 'Download the file'
+    ), $atts, 'cf7_success_dl' );
+
+    $upload_dir = wp_upload_dir();
+
+    if( get_transient( 'cf7_success' ) ) {
+        delete_transient( 'cf7_success' );
+        $ri = mt_rand();
+        set_transient( $ri, $atts['file'], 999 );
+        return '<a href="/cf7_dl/' . $ri . '">' . esc_html( $atts['msg'] ) . '</a>';
+    }
+    else {
+        return false;
+    }
+
+}
+add_shortcode( 'cf7_success_dl', 'cf7_success_dl_func' );
+
+/**
+ * Registers /cf7_dl/ endpoint
+ */
+function cf7_file_download() {
+    add_rewrite_endpoint( 'cf7_dl', EP_ROOT );
+}
+add_action( 'init', 'cf7_file_download' );
+
+/**
+ * Serves file as forced download
+ */
+function cf7_serve_file() {
+    if( $GLOBALS['pagenow'] == 'index.php' ) {
+
+        global $wp_query;
+
+        if( isset( $wp_query->query_vars['cf7_dl'] ) ) {
+            if( get_transient( get_query_var( 'cf7_dl' ) ) ) {
+                $upload_dir = wp_upload_dir();
+                $file = $upload_dir['basedir'] . '/' . get_transient( get_query_var( 'cf7_dl' ) );
+                delete_transient( get_query_var( 'cf7_dl' ) );
+
+                header( 'Content-type: application/pdf', true, 200 );
+                header( 'Content-Disposition: attachment; filename=download.pdf' );
+                header( 'Pragma: no-cache' );
+                header( 'Expires: 0' );
+                readfile( $file );
+
+            }
+            else {
+                echo 'Download expired.';
+            }
+            exit();
+        }
+    }
+}
+
+add_action( 'template_redirect', 'cf7_serve_file' );
